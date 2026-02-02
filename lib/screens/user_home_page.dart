@@ -6,6 +6,7 @@ import '../app_strings.dart';
 import '../app_theme_manager.dart';
 import 'report_page.dart';
 import 'map_page.dart';
+import 'profile_page.dart';
 
 
 class UserHomePage extends StatelessWidget {
@@ -35,6 +36,20 @@ class UserHomePage extends StatelessWidget {
           ),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.person, color: Colors.white),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ProfilePage(
+                    appLanguage: appLanguage,
+                    themeManager: themeManager,
+                  ),
+                ),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.language, color: Colors.white),
             onPressed: appLanguage.toggle,

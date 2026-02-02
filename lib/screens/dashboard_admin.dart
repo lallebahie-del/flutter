@@ -30,6 +30,9 @@ class DashboardAdmin extends StatelessWidget {
     });
   }
 
+  String _searchQuery = "";
+  String _statusFilter = "Tous";
+
   @override
   Widget build(BuildContext context) {
     return PremiumLayout(
@@ -46,11 +49,13 @@ class DashboardAdmin extends StatelessWidget {
             icon: const Icon(Icons.logout_rounded, color: Colors.white, size: 22),
             onPressed: () async {
               await FirebaseAuth.instance.signOut();
-              Navigator.pushNamedAndRemoveUntil(
-                context,
-                '/login',
-                    (route) => false,
-              );
+              if (context.mounted) {
+                Navigator.pushNamedAndRemoveUntil(
+                  context,
+                  '/login',
+                  (route) => false,
+                );
+              }
             },
           ),
         ),
@@ -59,180 +64,168 @@ class DashboardAdmin extends StatelessWidget {
         stream: getSignalements(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Color(0xFF386641),
-                          Color(0xFF4FD1A5),
-
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    child: const Padding(
-                      padding: EdgeInsets.all(16.0),
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 3,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    "Chargement des signalements...",
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Theme.of(context).textTheme.bodyLarge?.color?.withOpacity(0.7),
-                    ),
-                  ),
-                ],
-              ),
-            );
+            return const Center(child: CircularProgressIndicator(color: Colors.white));
           }
 
           if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      color:Color(0xFF386641).withOpacity(0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.inbox_outlined,
-                      size: 60,
-                      color: Color(0xFF1BA37A).withOpacity(0.6),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    "Aucun signalement",
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
-                      color: Theme.of(context).textTheme.bodyLarge?.color,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    "Les nouveaux signalements apparaîtront ici",
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Theme.of(context).textTheme.bodyLarge?.color?.withOpacity(0.5),
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
+            return const Center(
+              child: Text("Aucun signalement", style: TextStyle(color: Colors.white)),
             );
           }
 
-          final signalements = snapshot.data!;
-          final total = signalements.length;
-          final resolved = signalements.where((s) => s.status == 'Résolu').length;
-          final inProgress = signalements.where((s) => s.status == 'En cours').length;
+          var signalements = snapshot.data!;
 
-          return RefreshIndicator(
-            backgroundColor: Color(0xFF1BA37A),
-            color: Colors.white,
-            onRefresh: () async {
-              await Future.delayed(const Duration(milliseconds: 800));
-            },
-            child: CustomScrollView(
-              slivers: [
+          // 🔍 Filtering Logic
+          if (_searchQuery.isNotEmpty) {
+            signalements = signalements.where((s) {
+              final query = _searchQuery.toLowerCase();
+              return s.type.toLowerCase().contains(query) ||
+                  s.userName.toLowerCase().contains(query) ||
+                  (s.description?.toLowerCase().contains(query) ?? false);
+            }).toList();
+          }
 
-                SliverToBoxAdapter(
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 20),
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Color(0xFF1BA37A).withOpacity(0.1),
-                          Color(0xFF4FD1A5).withOpacity(0.1),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(
-                        color: Color(0xFF1BA37A).withOpacity(0.2),
-                        width: 1,
-                      ),
-                    ),
+          if (_statusFilter != "Tous") {
+            signalements = signalements.where((s) => s.status == _statusFilter).toList();
+          }
+
+          final total = snapshot.data!.length;
+          final resolved = snapshot.data!.where((s) => s.status == 'Résolu').length;
+          final inProgress = snapshot.data!.where((s) => s.status == 'En cours').length;
+
+          return StatefulBuilder(
+            builder: (context, setState) {
+              return CustomScrollView(
+                slivers: [
+                  SliverToBoxAdapter(
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          "Statistiques",
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Theme.of(context).textTheme.bodyLarge?.color?.withOpacity(0.8),
+                        // 📊 Stats Cards
+                        _buildStatsRow(context, total, inProgress, resolved),
+                        
+                        const SizedBox(height: 20),
+
+                        // 🔍 Search & Filter Bar
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).cardColor,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            children: [
+                              TextField(
+                                onChanged: (value) {
+                                  setState(() => _searchQuery = value);
+                                },
+                                decoration: InputDecoration(
+                                  hintText: "Rechercher un signalement...",
+                                  prefixIcon: const Icon(Icons.search),
+                                  border: InputBorder.none,
+                                  hintStyle: TextStyle(color: Colors.grey.shade500),
+                                ),
+                              ),
+                              const Divider(),
+                              SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    _buildFilterChip("Tous", setState),
+                                    const SizedBox(width: 8),
+                                    _buildFilterChip("En attente", setState),
+                                    const SizedBox(width: 8),
+                                    _buildFilterChip("En cours", setState),
+                                    const SizedBox(width: 8),
+                                    _buildFilterChip("Résolu", setState),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            _buildStatCard(
-                              context,
-                              "Total",
-                              "$total",
-                              Icons.list_alt_rounded,
-                              Color(0xFF1BA37A),
-                            ),
-                            _buildStatCard(
-                              context,
-                              "En cours",
-                              "$inProgress",
-                              Icons.schedule_rounded,
-                              Color(0xFF2196F3),
-                            ),
-                            _buildStatCard(
-                              context,
-                              "Résolus",
-                              "$resolved",
-                              Icons.check_circle_rounded,
-                              Color(0xFF4CAF50),
-                            ),
-                          ],
-                        ),
+                        const SizedBox(height: 20),
                       ],
                     ),
                   ),
-                ),
 
-                // 📋 LISTE DES SIGNALEMENTS
-                SliverPadding(
-                  padding: const EdgeInsets.only(bottom: 24),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                          (context, index) {
-                        final s = signalements[index];
-                        return _buildSignalementCard(context, s, index);
-                      },
-                      childCount: signalements.length,
+                  // 📋 List
+                  if (signalements.isEmpty)
+                   SliverFillRemaining(
+                      child: Center(
+                        child: Text(
+                          "Aucun résultat trouvé",
+                          style: TextStyle(
+                            color: Theme.of(context).textTheme.bodyLarge?.color?.withOpacity(0.5),
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          final s = signalements[index];
+                          return _buildSignalementCard(context, s, index);
+                        },
+                        childCount: signalements.length,
+                      ),
                     ),
-                  ),
-                ),
-              ],
-            ),
+                  
+                  const SliverPadding(padding: EdgeInsets.only(bottom: 24)),
+                ],
+              );
+            }
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(String status, StateSetter setState) {
+    final isSelected = _statusFilter == status;
+    return ChoiceChip(
+      label: Text(status),
+      selected: isSelected,
+      onSelected: (bool selected) {
+        setState(() => _statusFilter = selected ? status : "Tous");
+      },
+      selectedColor: const Color(0xFF386641),
+      labelStyle: TextStyle(
+        color: isSelected ? Colors.white : Colors.black87,
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+      ),
+      backgroundColor: Colors.grey.shade200,
+    );
+  }
+
+  Widget _buildStatsRow(BuildContext context, int total, int inProgress, int resolved) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+                           BoxShadow(
+                             color: Colors.black.withOpacity(0.05),
+                             blurRadius: 10,
+                             offset: const Offset(0, 4),
+                           ),
+        ]
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          _buildStatCard(context, "Total", "$total", Icons.list_alt_rounded, const Color(0xFF1BA37A)),
+          _buildStatCard(context, "En cours", "$inProgress", Icons.schedule_rounded, const Color(0xFF2196F3)),
+          _buildStatCard(context, "Résolus", "$resolved", Icons.check_circle_rounded, const Color(0xFF4CAF50)),
+        ],
       ),
     );
   }

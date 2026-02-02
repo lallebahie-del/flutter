@@ -5,6 +5,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:lottie/lottie.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../app_language.dart';
 import '../app_theme_manager.dart';
 
@@ -45,6 +47,35 @@ class _ReportPageState extends State<ReportPage> {
   void initState() {
     super.initState();
     _getCurrentLocation();
+    _loadDraft();
+  }
+
+  Future<void> _loadDraft() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _descriptionController.text = prefs.getString('draft_desc') ?? '';
+      _selectedCategory = prefs.getString('draft_cat');
+      // Image draft handling is complex (path might change), skipping for simplicity
+    });
+  }
+
+  Future<void> _saveDraft() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('draft_desc', _descriptionController.text);
+    if (_selectedCategory != null) {
+      await prefs.setString('draft_cat', _selectedCategory!);
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Brouillon sauvegardé")),
+      );
+    }
+  }
+
+  Future<void> _clearDraft() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('draft_desc');
+    await prefs.remove('draft_cat');
   }
 
   Future<void> _getCurrentLocation() async {
@@ -53,9 +84,6 @@ class _ReportPageState extends State<ReportPage> {
 
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      // Location services are not enabled don't continue
-      // accessing the position and request users of the 
-      // App to enable the location services.
       return;
     }
 
@@ -125,7 +153,7 @@ class _ReportPageState extends State<ReportPage> {
       // Save to Firestore
       await FirebaseFirestore.instance.collection('signalements').add({
         'userId': user.uid,
-        'userName': user.displayName ?? user.email ?? 'Anonyme', // Fallback
+        'userName': user.displayName ?? user.email ?? 'Anonyme',
         'type': _selectedCategory,
         'description': _descriptionController.text.trim(),
         'imageUrl': imageUrl,
@@ -135,11 +163,42 @@ class _ReportPageState extends State<ReportPage> {
         'date': FieldValue.serverTimestamp(),
       });
 
+      await _clearDraft();
+
       if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Signalement envoyé avec succès !")),
+        // Show Success Animation
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Lottie.network(
+                  'https://assets2.lottiefiles.com/packages/lf20_7W0ppo.json', // Checkmark animation
+                  repeat: false,
+                  height: 150,
+                  errorBuilder: (context, error, stackTrace) => 
+                      const Icon(Icons.check_circle, color: Colors.green, size: 80),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  "Merci !",
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  "Votre signalement a bien été reçu.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
         );
+        Navigator.pop(context);
       }
     } catch (e) {
       setState(() => _error = "Erreur lors de l'envoi : $e");
@@ -150,7 +209,6 @@ class _ReportPageState extends State<ReportPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Basic scaffold for now, can be upgraded to PremiumLayout if desired but simpler for form
     final isDark = widget.themeManager.themeMode == ThemeMode.dark;
 
     return Scaffold(
@@ -158,6 +216,13 @@ class _ReportPageState extends State<ReportPage> {
         title: const Text("Nouveau Signalement"),
         backgroundColor: const Color(0xFF386641),
         foregroundColor: Colors.white,
+        actions: [
+          TextButton.icon(
+            onPressed: _saveDraft,
+            icon: const Icon(Icons.save_outlined, color: Colors.white),
+            label: const Text("Brouillon", style: TextStyle(color: Colors.white)),
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),

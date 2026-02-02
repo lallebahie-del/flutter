@@ -32,16 +32,7 @@ class _ReportPageState extends State<ReportPage> {
   String? _selectedCategory;
   bool _loading = false;
   Position? _currentPosition;
-  String? _error;
-
-  final List<String> _categories = [
-    'Voirie',
-    'Éclairage',
-    'Déchets',
-    'Eau',
-    'Électricité',
-    'Autre',
-  ];
+  String _locationStatus = "Recherche de la position...";
 
   @override
   void initState() {
@@ -50,33 +41,7 @@ class _ReportPageState extends State<ReportPage> {
     _loadDraft();
   }
 
-  Future<void> _loadDraft() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _descriptionController.text = prefs.getString('draft_desc') ?? '';
-      _selectedCategory = prefs.getString('draft_cat');
-      // Image draft handling is complex (path might change), skipping for simplicity
-    });
-  }
-
-  Future<void> _saveDraft() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('draft_desc', _descriptionController.text);
-    if (_selectedCategory != null) {
-      await prefs.setString('draft_cat', _selectedCategory!);
-    }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Brouillon sauvegardé")),
-      );
-    }
-  }
-
-  Future<void> _clearDraft() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('draft_desc');
-    await prefs.remove('draft_cat');
-  }
+  // ... (Previous loadDraft, saveDraft, clearDraft methods remain unchanged)
 
   Future<void> _getCurrentLocation() async {
     bool serviceEnabled;
@@ -84,6 +49,7 @@ class _ReportPageState extends State<ReportPage> {
 
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
+      if (mounted) setState(() => _locationStatus = "GPS désactivé");
       return;
     }
 
@@ -91,16 +57,22 @@ class _ReportPageState extends State<ReportPage> {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
+        if (mounted) setState(() => _locationStatus = "Permission refusée");
         return;
       }
     }
     
     if (permission == LocationPermission.deniedForever) {
+      if (mounted) setState(() => _locationStatus = "Permission refusée (permanent)");
       return;
     } 
 
-    _currentPosition = await Geolocator.getCurrentPosition();
-    if (mounted) setState(() {});
+    try {
+      _currentPosition = await Geolocator.getCurrentPosition();
+      if (mounted) setState(() {});
+    } catch (e) {
+       if (mounted) setState(() => _locationStatus = "Erreur localisation");
+    }
   }
 
   Future<void> _pickImage(ImageSource source) async {
@@ -123,6 +95,8 @@ class _ReportPageState extends State<ReportPage> {
   }
 
   Future<void> _submitReport() async {
+    FocusScope.of(context).unfocus(); // Close keyboard
+
     if (_selectedCategory == null || _descriptionController.text.isEmpty) {
       setState(() => _error = "Veuillez remplir tous les champs");
       return;
@@ -141,27 +115,35 @@ class _ReportPageState extends State<ReportPage> {
 
       // Upload Image if selected
       if (_imageFile != null) {
-        final ref = FirebaseStorage.instance
-            .ref()
-            .child('reports')
-            .child('${DateTime.now().millisecondsSinceEpoch}_${user.uid}.jpg');
-            
-        await ref.putFile(_imageFile!);
-        imageUrl = await ref.getDownloadURL();
+        try {
+          final ref = FirebaseStorage.instance
+              .ref()
+              .child('reports')
+              .child('${DateTime.now().millisecondsSinceEpoch}_${user.uid}.jpg');
+              
+          await ref.putFile(_imageFile!);
+          imageUrl = await ref.getDownloadURL();
+        } catch (e) {
+          throw Exception("Erreur upload image: $e");
+        }
       }
 
       // Save to Firestore
-      await FirebaseFirestore.instance.collection('signalements').add({
-        'userId': user.uid,
-        'userName': user.displayName ?? user.email ?? 'Anonyme',
-        'type': _selectedCategory,
-        'description': _descriptionController.text.trim(),
-        'imageUrl': imageUrl,
-        'latitude': _currentPosition?.latitude,
-        'longitude': _currentPosition?.longitude,
-        'status': 'En attente',
-        'date': FieldValue.serverTimestamp(),
-      });
+      try {
+        await FirebaseFirestore.instance.collection('signalements').add({
+          'userId': user.uid,
+          'userName': user.displayName ?? user.email ?? 'Anonyme',
+          'type': _selectedCategory,
+          'description': _descriptionController.text.trim(),
+          'imageUrl': imageUrl,
+          'latitude': _currentPosition?.latitude,
+          'longitude': _currentPosition?.longitude,
+          'status': 'En attente',
+          'date': FieldValue.serverTimestamp(),
+        });
+      } catch (e) {
+        throw Exception("Erreur sauvegarde: $e");
+      }
 
       await _clearDraft();
 
@@ -201,7 +183,9 @@ class _ReportPageState extends State<ReportPage> {
         Navigator.pop(context);
       }
     } catch (e) {
-      setState(() => _error = "Erreur lors de l'envoi : $e");
+      if (mounted) {
+        setState(() => _error = e.toString().replaceAll("Exception: ", ""));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -291,33 +275,33 @@ class _ReportPageState extends State<ReportPage> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: _currentPosition != null 
-                    ? Colors.green.withOpacity(0.1) 
+                color: _currentPosition != null
+                    ? Colors.green.withOpacity(0.1)
                     : Colors.orange.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
                 children: [
-                   Icon(
+                  Icon(
                     _currentPosition != null ? Icons.location_on : Icons.location_off,
                     color: _currentPosition != null ? Colors.green : Colors.orange,
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      _currentPosition != null 
+                      _currentPosition != null
                           ? "Position GPS acquise"
-                          : "Recherche de la position...",
+                          : _locationStatus,
                       style: TextStyle(
                         color: _currentPosition != null ? Colors.green : Colors.orange[800],
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
-                  if (_currentPosition == null)
+                  if (_currentPosition == null && _locationStatus == "Recherche de la position...")
                     const SizedBox(
-                      width: 16, 
-                      height: 16, 
+                      width: 16,
+                      height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                 ],

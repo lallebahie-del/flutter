@@ -10,13 +10,21 @@ import '../widgets/status_chip.dart';
 import '../app_theme_manager.dart';
 import 'signalement_detail.dart';
 
-class DashboardAdmin extends StatelessWidget {
+class DashboardAdmin extends StatefulWidget {
   final AppThemeManager themeManager;
 
   const DashboardAdmin({
     super.key,
     required this.themeManager,
   });
+
+  @override
+  State<DashboardAdmin> createState() => _DashboardAdminState();
+}
+
+class _DashboardAdminState extends State<DashboardAdmin> {
+  String _searchQuery = "";
+  String _statusFilter = "Tous";
 
   Stream<List<Signalement>> getSignalements() {
     return FirebaseFirestore.instance
@@ -30,14 +38,11 @@ class DashboardAdmin extends StatelessWidget {
     });
   }
 
-  String _searchQuery = "";
-  String _statusFilter = "Tous";
-
   @override
   Widget build(BuildContext context) {
     return PremiumLayout(
       title: "Dashboard Admin",
-      themeManager: themeManager,
+      themeManager: widget.themeManager,
       actions: [
         Container(
           decoration: BoxDecoration(
@@ -75,7 +80,7 @@ class DashboardAdmin extends StatelessWidget {
 
           var signalements = snapshot.data!;
 
-          // 🔍 Filtering Logic
+          // 🔍 Filtering Logic inside build ensures re-render on setState
           if (_searchQuery.isNotEmpty) {
             signalements = signalements.where((s) {
               final query = _searchQuery.toLowerCase();
@@ -93,102 +98,98 @@ class DashboardAdmin extends StatelessWidget {
           final resolved = snapshot.data!.where((s) => s.status == 'Résolu').length;
           final inProgress = snapshot.data!.where((s) => s.status == 'En cours').length;
 
-          return StatefulBuilder(
-            builder: (context, setState) {
-              return CustomScrollView(
-                slivers: [
-                  SliverToBoxAdapter(
-                    child: Column(
-                      children: [
-                        // 📊 Stats Cards
-                        _buildStatsRow(context, total, inProgress, resolved),
-                        
-                        const SizedBox(height: 20),
+          return CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: Column(
+                  children: [
+                    // 📊 Stats Cards
+                    _buildStatsRow(context, total, inProgress, resolved),
+                    
+                    const SizedBox(height: 20),
 
-                        // 🔍 Search & Filter Bar
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).cardColor,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.05),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
+                    // 🔍 Search & Filter Bar
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).cardColor,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
                           ),
-                          child: Column(
-                            children: [
-                              TextField(
-                                onChanged: (value) {
-                                  setState(() => _searchQuery = value);
-                                },
-                                decoration: InputDecoration(
-                                  hintText: "Rechercher un signalement...",
-                                  prefixIcon: const Icon(Icons.search),
-                                  border: InputBorder.none,
-                                  hintStyle: TextStyle(color: Colors.grey.shade500),
-                                ),
-                              ),
-                              const Divider(),
-                              SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: Row(
-                                  children: [
-                                    _buildFilterChip("Tous", setState),
-                                    const SizedBox(width: 8),
-                                    _buildFilterChip("En attente", setState),
-                                    const SizedBox(width: 8),
-                                    _buildFilterChip("En cours", setState),
-                                    const SizedBox(width: 8),
-                                    _buildFilterChip("Résolu", setState),
-                                  ],
-                                ),
-                              ),
-                            ],
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          TextField(
+                            onChanged: (value) {
+                              setState(() => _searchQuery = value);
+                            },
+                            decoration: InputDecoration(
+                              hintText: "Rechercher un signalement...",
+                              prefixIcon: const Icon(Icons.search),
+                              border: InputBorder.none,
+                              hintStyle: TextStyle(color: Colors.grey.shade500),
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 20),
-                      ],
+                          const Divider(),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                _buildFilterChip("Tous"),
+                                const SizedBox(width: 8),
+                                _buildFilterChip("En attente"),
+                                const SizedBox(width: 8),
+                                _buildFilterChip("En cours"),
+                                const SizedBox(width: 8),
+                                _buildFilterChip("Résolu"),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+
+              // 📋 List
+              if (signalements.isEmpty)
+                SliverFillRemaining(
+                  child: Center(
+                    child: Text(
+                      "Aucun résultat trouvé",
+                      style: TextStyle(
+                        color: Theme.of(context).textTheme.bodyLarge?.color?.withOpacity(0.5),
+                      ),
                     ),
                   ),
-
-                  // 📋 List
-                  if (signalements.isEmpty)
-                   SliverFillRemaining(
-                      child: Center(
-                        child: Text(
-                          "Aucun résultat trouvé",
-                          style: TextStyle(
-                            color: Theme.of(context).textTheme.bodyLarge?.color?.withOpacity(0.5),
-                          ),
-                        ),
-                      ),
-                    )
-                  else
-                    SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (context, index) {
-                          final s = signalements[index];
-                          return _buildSignalementCard(context, s, index);
-                        },
-                        childCount: signalements.length,
-                      ),
-                    ),
-                  
-                  const SliverPadding(padding: EdgeInsets.only(bottom: 24)),
-                ],
-              );
-            }
+                )
+              else
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final s = signalements[index];
+                      return _buildSignalementCard(context, s, index);
+                    },
+                    childCount: signalements.length,
+                  ),
+                ),
+              
+              const SliverPadding(padding: EdgeInsets.only(bottom: 24)),
+            ],
           );
         },
       ),
     );
   }
 
-  Widget _buildFilterChip(String status, StateSetter setState) {
+  Widget _buildFilterChip(String status) {
     final isSelected = _statusFilter == status;
     return ChoiceChip(
       label: Text(status),
@@ -212,11 +213,11 @@ class DashboardAdmin extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
-                           BoxShadow(
-                             color: Colors.black.withOpacity(0.05),
-                             blurRadius: 10,
-                             offset: const Offset(0, 4),
-                           ),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
         ]
       ),
       child: Row(
@@ -295,7 +296,7 @@ class DashboardAdmin extends StatelessWidget {
               transitionDuration: const Duration(milliseconds: 300),
               pageBuilder: (_, __, ___) => SignalementDetailScreen(
                 signalement: s,
-                themeManager: themeManager,
+                themeManager: widget.themeManager,
               ),
               transitionsBuilder: (_, animation, __, child) {
                 return SlideTransition(
